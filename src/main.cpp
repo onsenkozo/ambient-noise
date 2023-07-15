@@ -87,11 +87,11 @@ void loop() {
       continuePressBtn = false;
       if (mp3->isRunning()) {
         mp3->stop();
-        file = new AudioFileSourceSPIFFS(sounds[selected_sound]);
-        mp3 = new AudioGeneratorMP3();
-        mp3->begin(file, out);
-        Serial.println("change.");
       }
+      file = new AudioFileSourceSPIFFS(sounds[selected_sound]);
+      mp3 = new AudioGeneratorMP3();
+      mp3->begin(file, out);
+      Serial.println("change.");
     } else {
       if (not detected && mp3->isRunning()) {
         if (!mp3->loop()) {
