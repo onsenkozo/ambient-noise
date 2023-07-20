@@ -1,5 +1,8 @@
+#include <thread>
 #include <M5Atom.h>
 #include <driver/i2s.h>
+#include <BLEClient.h>
+#include <BLEDevice.h>
 #include "SPIFFS.h"
 #include "AudioFileSourceSPIFFS.h"
 #include "AudioGeneratorMP3.h"
@@ -8,6 +11,9 @@
 AudioGeneratorMP3 *mp3;
 AudioFileSourceSPIFFS *file;
 AudioOutputI2S *out;
+BLEScan *scanner;
+
+std::shared_ptr<std::thread> th;
 
 #define audio_gain 12
 #define BCLK 19
@@ -20,13 +26,34 @@ const char* sounds[] = {
   "/haraokame.mp3",
 };
 
+class ScanCallbacks: public BLEAdvertisedDeviceCallbacks {
+public:
+	virtual void onResult(BLEAdvertisedDevice advertisedDevice) {
+    Serial.print("get advertise: ");
+    Serial.println(advertisedDevice.toString().c_str());
+  }
+};
+
+void setupBLE() {
+  Serial.println("Starting BLE");
+  BLEDevice::init("my-central");
+  th = std::make_shared<std::thread>([&]() {
+    scanner = BLEDevice::getScan();
+    scanner->setAdvertisedDeviceCallbacks(new ScanCallbacks());
+    scanner->start(0, true);
+  });
+}
+
 int selected_sound = 0;
+bool isActive = true;
 
 void setup() {
-    // put your setup code here, to run once:
+  // put your setup code here, to run once:
 
   M5.begin(true, false, true);
   pinMode(PIR, INPUT); 
+
+  setupBLE();
 
   Serial.begin(115200);
   delay(1000);
