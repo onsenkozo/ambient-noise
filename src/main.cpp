@@ -15,6 +15,7 @@ AudioOutputI2S *out;
 BLEScan *scanner;
 
 std::shared_ptr<std::thread> th;
+bool night = false;
 
 #define audio_gain 12
 #define BCLK 19
@@ -29,10 +30,10 @@ const char* sounds[] = {
 
 void GetAdvertisedDevice(BLEAdvertisedDevice advertisedDevice) {
   Serial.print("get advertise: ");
-  // if (advertisedDevice.haveName() && advertisedDevice.getName() == time_service) {
-  //   Serial.print(advertisedDevice.getName().c_str());
-  //   Serial.print(": ");
-  // }
+  if (advertisedDevice.haveName() && advertisedDevice.getName() == time_service) {
+    Serial.print(advertisedDevice.getName().c_str());
+    Serial.print(": ");
+  }
   Serial.println(advertisedDevice.toString().c_str());
 }
 
