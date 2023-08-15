@@ -8,6 +8,7 @@
 #include "AudioGeneratorMP3.h"
 #include "AudioOutputI2S.h"
 
+const std::string time_service = "M5Time";
 AudioGeneratorMP3 *mp3;
 AudioFileSourceSPIFFS *file;
 AudioOutputI2S *out;
@@ -26,11 +27,19 @@ const char* sounds[] = {
   "/haraokame.mp3",
 };
 
+void GetAdvertisedDevice(BLEAdvertisedDevice advertisedDevice) {
+  Serial.print("get advertise: ");
+  // if (advertisedDevice.haveName() && advertisedDevice.getName() == time_service) {
+  //   Serial.print(advertisedDevice.getName().c_str());
+  //   Serial.print(": ");
+  // }
+  Serial.println(advertisedDevice.toString().c_str());
+}
+
 class ScanCallbacks: public BLEAdvertisedDeviceCallbacks {
 public:
 	virtual void onResult(BLEAdvertisedDevice advertisedDevice) {
-    Serial.print("get advertise: ");
-    Serial.println(advertisedDevice.toString().c_str());
+    GetAdvertisedDevice(advertisedDevice);
   }
 };
 
@@ -39,8 +48,18 @@ void setupBLE() {
   BLEDevice::init("my-central");
   th = std::make_shared<std::thread>([&]() {
     scanner = BLEDevice::getScan();
+    scanner->setActiveScan(false);
     scanner->setAdvertisedDeviceCallbacks(new ScanCallbacks());
-    scanner->start(0, true);
+    while (true) {
+      Serial.println("Begin scan.");
+      BLEScanResults result = scanner->start(5);
+      int cnt = result.getCount();
+      for (int i = 0; i < cnt; i++) {
+        GetAdvertisedDevice(result.getDevice(i));
+      }
+      scanner->clearResults();
+      Serial.println("End scan.");
+    }
   });
 }
 
