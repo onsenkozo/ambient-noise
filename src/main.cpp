@@ -158,15 +158,15 @@ void loop() {
       mp3->begin(file, out);
       Serial.println("change.");
     } else {
-      if (not detected && mp3->isRunning()) {
+      if ((not detected or not night) && mp3->isRunning()) {
         if (!mp3->loop()) {
           Serial.println("stop.");
           mp3->stop();
         }
-      } else if (detected && mp3->isRunning()) {
+      } else if ((detected or not night) && mp3->isRunning()) {
           Serial.println("stop.");
           mp3->stop();
-      } else if (not detected && not mp3->isRunning()) {
+      } else if (not detected && night && not mp3->isRunning()) {
         Serial.println("repeat.");
         file = new AudioFileSourceSPIFFS(sounds[selected_sound]);
         mp3 = new AudioGeneratorMP3();
