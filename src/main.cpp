@@ -29,20 +29,43 @@ const char* sounds[] = {
 };
 
 void GetAdvertisedDevice(BLEAdvertisedDevice advertisedDevice) {
-  Serial.print("get advertise: ");
   if (advertisedDevice.haveName() && advertisedDevice.getName() == time_service) {
-    Serial.print(advertisedDevice.getName().c_str());
-    Serial.print(": ");
-  }
-  Serial.println(advertisedDevice.toString().c_str());
-}
+    Serial.print("get advertise: ");
+    Serial.println(advertisedDevice.toString().c_str());
+    std::string data = advertisedDevice.getManufacturerData();
+    char chr;
+    int idx=0;
+    uint8_t len = data.size();
+    Serial.printf("len: %d\n", len);
+    if (len != 12) return;
 
-class ScanCallbacks: public BLEAdvertisedDeviceCallbacks {
-public:
-	virtual void onResult(BLEAdvertisedDevice advertisedDevice) {
-    GetAdvertisedDevice(advertisedDevice);
+    // uint8_t adtype = data[idx++];
+    // if (adtype != 0xff) return;
+    // Serial.printf("adtype: %02x\n", adtype);
+
+    uint16_t manu_id = data[idx++] + (data[idx++] << 8);
+    Serial.printf("manu_id: %04x\n", manu_id);
+    if (manu_id != 0xffff) return;
+
+    tm time;
+    time.tm_year = (data[idx++] + (data[idx++] << 8)) - 1900;
+    time.tm_mon = data[idx++] - 1;
+    time.tm_mday = data[idx++];
+    time.tm_hour = data[idx++];
+    time.tm_min = data[idx++];
+    time.tm_sec = data[idx++];
+
+    uint8_t tzh  = data[idx++];
+    uint8_t tzm = data[idx++];
+    uint8_t wday = data[idx++];
+
+    Serial.printf("time: %04d-%02d-%02dT%02d:%02d:%02d+%02d:%02d\n",
+      time.tm_year + 1900, time.tm_mon + 1, time.tm_mday, time.tm_hour, time.tm_min, time.tm_sec, tzh, tzm);
+
+    night = (time.tm_hour < 6 || time.tm_hour >= 6);
+    Serial.printf("night flag: %s\n", night ? "true" : "false");
   }
-};
+}
 
 void setupBLE() {
   Serial.println("Starting BLE");
@@ -50,7 +73,6 @@ void setupBLE() {
   th = std::make_shared<std::thread>([&]() {
     scanner = BLEDevice::getScan();
     scanner->setActiveScan(false);
-    scanner->setAdvertisedDeviceCallbacks(new ScanCallbacks());
     while (true) {
       Serial.println("Begin scan.");
       BLEScanResults result = scanner->start(5);
@@ -68,8 +90,6 @@ int selected_sound = 0;
 bool isActive = true;
 
 void setup() {
-  // put your setup code here, to run once:
-
   M5.begin(true, false, true);
   pinMode(PIR, INPUT); 
 
@@ -79,9 +99,7 @@ void setup() {
   delay(1000);
   SPIFFS.begin();
   
-  audioLogger = &Serial;
-
-  out = new AudioOutputI2S(I2S_NUM_0);
+    out = new AudioOutputI2S(I2S_NUM_0);
   out->SetOutputModeMono(true);
   out->SetGain(audio_gain / 100.0);
   out->SetPinout(BCLK, LRCK, DataOut);
