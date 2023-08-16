@@ -9,12 +9,17 @@
 #include "AudioOutputI2S.h"
 
 const std::string time_service = "M5Time";
+const std::string sensor_adv = "M5Sense";
 AudioGeneratorMP3 *mp3;
 AudioFileSourceSPIFFS *file;
 AudioOutputI2S *out;
 BLEScan *scanner;
 
-std::shared_ptr<std::thread> th;
+BLEServer* server = nullptr;
+BLEAdvertising* advertising = nullptr;
+
+std::shared_ptr<std::thread> th1;
+std::shared_ptr<std::thread> th2;
 bool night = false;
 
 #define audio_gain 12
@@ -38,10 +43,6 @@ void GetAdvertisedDevice(BLEAdvertisedDevice advertisedDevice) {
     uint8_t len = data.size();
     Serial.printf("len: %d\n", len);
     if (len != 12) return;
-
-    // uint8_t adtype = data[idx++];
-    // if (adtype != 0xff) return;
-    // Serial.printf("adtype: %02x\n", adtype);
 
     uint16_t manu_id = data[idx++] + (data[idx++] << 8);
     Serial.printf("manu_id: %04x\n", manu_id);
@@ -67,10 +68,30 @@ void GetAdvertisedDevice(BLEAdvertisedDevice advertisedDevice) {
   }
 }
 
+void setAdvertisementData(BLEAdvertising *pAdvertising)
+{
+  // string領域に送信情報を連結する
+  std::string strData = "";
+  strData += (char)5;                 // length: 5 octets
+  strData += (char)0xff;              // Manufacturer specific data
+  strData += (char)0xff;              // manufacturer ID low byte
+  strData += (char)0xff;              // manufacturer ID high byte
+  strData += (char)0;                 // device id
+  strData += (char)0;                 // count by hour
+
+  // デバイス名とフラグをセットし、送信情報を組み込んでアドバタイズオブジェクトに設定する
+  BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
+  oAdvertisementData.setName(sensor_adv);
+  oAdvertisementData.setFlags(0x06); // LE General Discoverable Mode | BR_EDR_NOT_SUPPORTED
+  oAdvertisementData.addData(strData);
+  pAdvertising->setAdvertisementData(oAdvertisementData);
+  pAdvertising->setAdvertisementType(esp_ble_adv_type_t::ADV_TYPE_NONCONN_IND);
+}
+
 void setupBLE() {
   Serial.println("Starting BLE");
-  BLEDevice::init("my-central");
-  th = std::make_shared<std::thread>([&]() {
+  BLEDevice::init(sensor_adv);
+  th1 = std::make_shared<std::thread>([&]() {
     scanner = BLEDevice::getScan();
     scanner->setActiveScan(false);
     while (true) {
@@ -82,6 +103,20 @@ void setupBLE() {
       }
       scanner->clearResults();
       Serial.println("End scan.");
+    }
+  });
+
+  server = BLEDevice::createServer();
+  advertising = server->getAdvertising();
+
+  th2 = std::make_shared<std::thread>([&]() {
+    while (true) {
+      setAdvertisementData(advertising);
+      Serial.print("Starting Advertisement: ");
+      advertising->start();
+      std::this_thread::sleep_for(std::chrono::seconds(4));
+      advertising->stop();
+      Serial.println("Stop Advertisement. ");
     }
   });
 }
