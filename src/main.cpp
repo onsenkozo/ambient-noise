@@ -62,7 +62,7 @@ void GetAdvertisedDevice(BLEAdvertisedDevice advertisedDevice) {
     Serial.printf("time: %04d-%02d-%02dT%02d:%02d:%02d+%02d:%02d\n",
       time.tm_year + 1900, time.tm_mon + 1, time.tm_mday, time.tm_hour, time.tm_min, time.tm_sec, tzh, tzm);
 
-    night = (time.tm_hour < 6 || time.tm_hour >= 6);
+    night = (time.tm_hour < 6 || 18 <= time.tm_hour);
     Serial.printf("night flag: %s\n", night ? "true" : "false");
   }
 }
@@ -99,7 +99,7 @@ void setup() {
   delay(1000);
   SPIFFS.begin();
   
-    out = new AudioOutputI2S(I2S_NUM_0);
+  out = new AudioOutputI2S(I2S_NUM_0);
   out->SetOutputModeMono(true);
   out->SetGain(audio_gain / 100.0);
   out->SetPinout(BCLK, LRCK, DataOut);
