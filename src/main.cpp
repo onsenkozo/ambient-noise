@@ -45,6 +45,12 @@ uint8_t led_g = 0;
 uint8_t led_b = 0;
 uint8_t bright = 0;
 int8_t direction = 1;
+int8_t blink_count = 0;
+uint8_t blink_off_current_count = 0;
+uint8_t blink_on_current_count = 0;
+const uint8_t blink_off_count = 10;
+const uint8_t blink_on_count = 20;
+bool blinkOnState = false;
 
 #define audio_gain 12
 #define BCLK 19
@@ -148,11 +154,31 @@ void setupBLE() {
 }
 
 void blinkLed() {
-  if (led_r != 0 or led_g != 0 or led_b != 0) {
+  if (blink_count == 0 and (led_r != 0 or led_g != 0 or led_b != 0)) {
     M5.dis.drawpix(0, CRGB(led_r * bright / 256, led_g * bright / 256, led_b * bright / 256));
     bright += direction;
     if (bright == 255 || bright == 0) {
       direction *= -1;
+    }
+  } else if (blink_count > 0) {
+    Serial.printf("Blink Count: %d.\n", blink_count);
+    if (!blinkOnState and blink_on_current_count == 0) {
+      blink_on_current_count = blink_on_count;
+      M5.dis.drawpix(0, CRGB(led_r * bright / 256, led_g * bright / 256, led_b * bright / 256));
+    } else if (!blinkOnState and blink_on_current_count > 0) {
+      blink_on_current_count--;
+      if (blink_on_current_count == 0) {
+        blinkOnState = true;
+      }
+    } else if (blinkOnState and blink_off_current_count == 0) {
+      blink_off_current_count = blink_off_count;
+      M5.dis.drawpix(0, CRGB(0, 0, 0));
+    } else if (blinkOnState and blink_off_current_count > 0) {
+      blink_off_current_count--;
+      if (blink_off_current_count == 0) {
+        blinkOnState = false;
+        blink_count--;
+      }
     }
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -247,11 +273,15 @@ void loop() {
         selected_sound %= (sizeof(sounds)/sizeof(char*));
         Serial.printf(" to %d.\n", selected_sound);
         ledChange();                  // 液晶画面表示変更
+        blink_count = selected_sound + 1;
+        Serial.printf("Sound Select Blink countt: %d.\n", blink_count);
         break;
       case device_no_10:
         deviceNo = (deviceNo + 10) % 100;
         Serial.printf("Device NO: %d\n", deviceNo);
         ledChange();                  // 液晶画面表示変更
+        blink_count = deviceNo / 10;
+        Serial.printf("Device No 10: %d.\n", blink_count);
         break;
       case device_no_1:
         deviceNo = (deviceNo / 10) * 10 + ((deviceNo % 10) + 1) % 10;
@@ -260,6 +290,8 @@ void loop() {
         }
         Serial.printf("Device NO: %d\n", deviceNo);
         ledChange();                  // 液晶画面表示変更
+        blink_count = deviceNo % 10;
+        Serial.printf("Device No 1: %d.\n", blink_count);
         break;
       case confirm:
         Serial.printf("SAVE? %d", confirm_flag);
