@@ -13,14 +13,38 @@ const std::string sensor_adv = "M5Sense";
 AudioGeneratorMP3 *mp3;
 AudioFileSourceSPIFFS *file;
 AudioOutputI2S *out;
-BLEScan *scanner;
 
 BLEServer* server = nullptr;
 BLEAdvertising* advertising = nullptr;
+BLEScan *scanner = nullptr;
 
 std::shared_ptr<std::thread> th1;
 std::shared_ptr<std::thread> th2;
+std::shared_ptr<std::thread> th3;
+
+uint8_t deviceNo = 1;
+uint8_t selected_sound = 0;
+bool isActive = true;
+bool isDetected = false;
 bool night = false;
+bool continueDetected = false;
+bool pressBtn = false;
+bool continuePressBtn = false;
+bool longPress = false;
+bool confirm_flag = false;
+
+const uint8_t run = 0;
+const uint8_t sound_select = 1;
+const uint8_t device_no_10 = 2;
+const uint8_t device_no_1 = 3;
+const uint8_t confirm = 4;
+uint8_t config_state = run;
+
+uint8_t led_r = 0;
+uint8_t led_g = 0;
+uint8_t led_b = 0;
+uint8_t bright = 0;
+int8_t direction = 1;
 
 #define audio_gain 12
 #define BCLK 19
@@ -72,12 +96,14 @@ void setAdvertisementData(BLEAdvertising *pAdvertising)
 {
   // string領域に送信情報を連結する
   std::string strData = "";
-  strData += (char)5;                 // length: 5 octets
-  strData += (char)0xff;              // Manufacturer specific data
-  strData += (char)0xff;              // manufacturer ID low byte
-  strData += (char)0xff;              // manufacturer ID high byte
-  strData += (char)0;                 // device id
-  strData += (char)0;                 // count by hour
+  strData += (char)5;                     // length: 5 octets
+  strData += (char)0xff;                  // Manufacturer specific data
+  strData += (char)0xff;                  // manufacturer ID low byte
+  strData += (char)0xff;                  // manufacturer ID high byte
+  strData += (char)deviceNo;              // device id
+  strData += (char)(isDetected ? 1 : 0);  // count by hour
+
+  isDetected = false;
 
   // デバイス名とフラグをセットし、送信情報を組み込んでアドバタイズオブジェクトに設定する
   BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
@@ -121,14 +147,73 @@ void setupBLE() {
   });
 }
 
-int selected_sound = 0;
-bool isActive = true;
+void blinkLed() {
+  if (led_r != 0 or led_g != 0 or led_b != 0) {
+    M5.dis.drawpix(0, CRGB(led_r * bright / 256, led_g * bright / 256, led_b * bright / 256));
+    bright += direction;
+    if (bright == 255 || bright == 0) {
+      direction *= -1;
+    }
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+}
+
+void ledChange() {
+  if (config_state == confirm) {
+    if (confirm_flag) {
+      led_r = 0;
+      led_g = 255;
+      led_b = 0;
+    } else {
+      led_r = 255;
+      led_g = 0;
+      led_b = 0;
+    }
+  }
+}
+
+void changeConfigState() {
+  switch (config_state) {
+    case run:
+      config_state = sound_select;
+      led_r = 255;
+      led_g = 255;
+      led_b = 255;
+      break;
+    case sound_select:
+      config_state = device_no_10;
+      led_r = 0;
+      led_g = 255;
+      led_b = 255;
+      break;
+    case device_no_10:
+      config_state = device_no_1;
+      led_r = 0;
+      led_g = 0;
+      led_b = 255;
+      break;
+    case device_no_1:
+      config_state = confirm;
+      led_r = 255;
+      led_g = 0;
+      led_b = 0;
+      break;
+    case confirm:
+      config_state = run;
+      led_r = 0;
+      led_g = 0;
+      led_b = 0;
+      break;
+  }
+}
 
 void setup() {
   M5.begin(true, false, true);
   pinMode(PIR, INPUT); 
 
   setupBLE();
+
+  M5.dis.clear();
 
   Serial.begin(115200);
   delay(1000);
@@ -142,34 +227,54 @@ void setup() {
   mp3 = new AudioGeneratorMP3();
 }
 
-bool continueDetected = false;
-bool pressBtn = false;
-bool continuePressBtn = false;
-
 void loop() {
-  // put your main code here, to run repeatedly:
-  M5.update();
+  blinkLed();
+
+  M5.update();  // ボタン状態更新
+
+  // 本体スイッチ処理
+  if (!longPress and M5.Btn.pressedFor(3000)) {  // 3秒間ボタンが押されていれば
+    changeConfigState();
+    ledChange();                  // 液晶画面表示変更
+    longPress = true;
+  } else if (longPress and M5.Btn.wasReleased()) {
+    longPress = false;
+  } else if (M5.Btn.wasReleased()) {
+    switch (config_state) {
+      case sound_select:
+        Serial.printf("change from %d", selected_sound);
+        selected_sound++;
+        selected_sound %= (sizeof(sounds)/sizeof(char*));
+        Serial.printf(" to %d.\n", selected_sound);
+        ledChange();                  // 液晶画面表示変更
+        break;
+      case device_no_10:
+        deviceNo = (deviceNo + 10) % 100;
+        Serial.printf("Device NO: %d\n", deviceNo);
+        ledChange();                  // 液晶画面表示変更
+        break;
+      case device_no_1:
+        deviceNo = (deviceNo / 10) * 10 + ((deviceNo % 10) + 1) % 10;
+        if (deviceNo == 0) {
+          deviceNo = 1;
+        }
+        Serial.printf("Device NO: %d\n", deviceNo);
+        ledChange();                  // 液晶画面表示変更
+        break;
+      case confirm:
+        Serial.printf("SAVE? %d", confirm_flag);
+        confirm_flag = !confirm_flag; // flag状態反転
+        Serial.printf(" to %d.\n", confirm_flag);
+        ledChange();                  // 液晶画面表示変更
+        break;
+    }
+  }
 
   bool detected = false;
 
-  if (pressBtn == false && M5.Btn.isPressed()) {
-    Serial.println("pressed.");
-    pressBtn = true;
-    continuePressBtn = true;
-    Serial.print("change from ");
-    Serial.print(selected_sound);
-    selected_sound++;
-    selected_sound %= (sizeof(sounds)/sizeof(char*));
-    Serial.print(" to ");
-    Serial.print(selected_sound);
-    Serial.println(".");
-  } else if (pressBtn && M5.Btn.isReleased()) {
-    Serial.println("released.");
-    pressBtn = false;
-  }
-
   if (digitalRead(PIR) == 1) {  // If pin 36 reads a value of 1.
     // detected
+    isDetected = true;
     detected = true;
     if (not continueDetected) {
       continueDetected = true;
