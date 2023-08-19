@@ -1,10 +1,10 @@
 #include <thread>
-#include <mutex>
 #include <M5Atom.h>
 #include <driver/i2s.h>
 #include <BLEClient.h>
 #include <BLEDevice.h>
 #include "SPIFFS.h"
+#include "FS.h"
 #include "AudioFileSourceSPIFFS.h"
 #include "AudioGeneratorMP3.h"
 #include "AudioOutputI2S.h"
@@ -25,6 +25,10 @@ std::shared_ptr<std::thread> th2;
 uint8_t deviceNo = 1;
 uint8_t selected_sound = 0;
 uint8_t prev_selected_sound = 255;
+
+uint8_t originDeviceNo = 0;
+uint8_t originSelectedSound = 0;
+
 bool isActive = true;
 bool isDetected = false;
 bool night = false;
@@ -58,7 +62,6 @@ enum class blinkState : uint8_t {
   PostOffState,
 };
 blinkState blinkOnState = blinkState::NonBlink;
-std::mutex _mtx;
 
 #define audio_gain 12
 #define BCLK 19
@@ -66,10 +69,13 @@ std::mutex _mtx;
 #define DataOut 22
 #define PIR 32
 
+static const bool FORMAT_SPIFFS_IF_FAILED = true;
+
 const char* sounds[] = {
   "/mitsukado.mp3",
   "/haraokame.mp3",
 };
+const char* configFile = "/data/settings.txt";
 
 void GetAdvertisedDevice(BLEAdvertisedDevice advertisedDevice) {
   if (advertisedDevice.haveName() && advertisedDevice.getName() == time_service) {
@@ -255,6 +261,8 @@ void ledChange() {
 void changeConfigState() {
   switch (config_state) {
     case configState::run:
+      originDeviceNo = deviceNo;
+      originSelectedSound = selected_sound;
       config_state = configState::sound_select;
       led_r = 255;
       led_g = 255;
@@ -283,10 +291,22 @@ void changeConfigState() {
       Serial.printf("Change state from device no 1's order to confirm save.\n");
       break;
     case configState::confirm:
+      if (confirm_flag) {
+        // 設定書き込み
+        File fp = SPIFFS.open(configFile, FILE_WRITE);
+        fp.write(deviceNo);
+        fp.write(selected_sound);
+        fp.close();
+        Serial.println("SPIFFS FILE WRITE");
+      } else {
+        deviceNo = originDeviceNo;
+        selected_sound = originSelectedSound;
+      }
       config_state = configState::run;
       led_r = 0;
       led_g = 0;
       led_b = 0;
+      M5.dis.drawpix(0, CRGB(0, 0, 0));
       Serial.printf("Change state from confirm save to run.");
       break;
   }
@@ -296,14 +316,30 @@ void setup() {
   M5.begin(true, false, true);
   pinMode(PIR, INPUT); 
 
+  Serial.begin(115200);
+  delay(1000);
+
+  if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED)) {
+      Serial.println("Failed to mount SPIFFS");
+      return;
+  }
+
+  // 設定読み込み
+  File fp = SPIFFS.open(configFile, FILE_READ);
+  if (fp.available() > 0) {
+    deviceNo = fp.read();
+    selected_sound = fp.read();
+    fp.close();
+    Serial.println("SPIFFS FILE READ");
+    if (deviceNo == 0) {
+      deviceNo = 1;
+    }
+  }
+
   setupBLE();
   setupLed();
 
   M5.dis.clear();
-
-  Serial.begin(115200);
-  delay(1000);
-  SPIFFS.begin();
   
   out = new AudioOutputI2S(I2S_NUM_0);
   out->SetOutputModeMono(true);
