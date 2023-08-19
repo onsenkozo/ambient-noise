@@ -1,4 +1,5 @@
 #include <thread>
+#include <mutex>
 #include <M5Atom.h>
 #include <driver/i2s.h>
 #include <BLEClient.h>
@@ -20,7 +21,6 @@ BLEScan *scanner = nullptr;
 
 std::shared_ptr<std::thread> th1;
 std::shared_ptr<std::thread> th2;
-std::shared_ptr<std::thread> th3;
 
 uint8_t deviceNo = 1;
 uint8_t selected_sound = 0;
@@ -43,14 +43,21 @@ uint8_t config_state = run;
 uint8_t led_r = 0;
 uint8_t led_g = 0;
 uint8_t led_b = 0;
-uint8_t bright = 0;
-int8_t direction = 1;
-int8_t blink_count = 0;
-uint8_t blink_off_current_count = 0;
-uint8_t blink_on_current_count = 0;
-const uint8_t blink_off_count = 10;
-const uint8_t blink_on_count = 20;
-bool blinkOnState = false;
+uint8_t blink_count = 0;
+uint8_t blink_sub_count = 0;
+const uint8_t blink_off_count = 2;
+const uint8_t blink_on_count = 2;
+const uint8_t blink_pre_on_count = 5;
+const uint8_t blink_post_off_count = 5;
+enum class blinkState : uint8_t {
+  NonBlink,
+  PreOnState,
+  OnState,
+  OffState,
+  PostOffState,
+};
+blinkState blinkOnState = blinkState::NonBlink;
+std::mutex _mtx;
 
 #define audio_gain 12
 #define BCLK 19
@@ -123,10 +130,17 @@ void setAdvertisementData(BLEAdvertising *pAdvertising)
 void setupBLE() {
   Serial.println("Starting BLE");
   BLEDevice::init(sensor_adv);
+  server = BLEDevice::createServer();
+  advertising = server->getAdvertising();
+
   th1 = std::make_shared<std::thread>([&]() {
     scanner = BLEDevice::getScan();
     scanner->setActiveScan(false);
     while (true) {
+      setAdvertisementData(advertising);
+      Serial.print("Starting Advertisement: ");
+      advertising->start();
+
       Serial.println("Begin scan.");
       BLEScanResults result = scanner->start(5);
       int cnt = result.getCount();
@@ -135,18 +149,6 @@ void setupBLE() {
       }
       scanner->clearResults();
       Serial.println("End scan.");
-    }
-  });
-
-  server = BLEDevice::createServer();
-  advertising = server->getAdvertising();
-
-  th2 = std::make_shared<std::thread>([&]() {
-    while (true) {
-      setAdvertisementData(advertising);
-      Serial.print("Starting Advertisement: ");
-      advertising->start();
-      std::this_thread::sleep_for(std::chrono::seconds(4));
       advertising->stop();
       Serial.println("Stop Advertisement. ");
     }
@@ -154,34 +156,84 @@ void setupBLE() {
 }
 
 void blinkLed() {
-  if (blink_count == 0 and (led_r != 0 or led_g != 0 or led_b != 0)) {
-    M5.dis.drawpix(0, CRGB(led_r * bright / 256, led_g * bright / 256, led_b * bright / 256));
-    bright += direction;
-    if (bright == 255 || bright == 0) {
-      direction *= -1;
+  // Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+  if (blinkOnState == blinkState::NonBlink) {
+    if (led_r != 0 or led_g != 0 or led_b != 0) {
+      M5.dis.drawpix(0, CRGB(led_r, led_g, led_b));
     }
-  } else if (blink_count > 0) {
-    Serial.printf("Blink Count: %d.\n", blink_count);
-    if (!blinkOnState and blink_on_current_count == 0) {
-      blink_on_current_count = blink_on_count;
-      M5.dis.drawpix(0, CRGB(led_r * bright / 256, led_g * bright / 256, led_b * bright / 256));
-    } else if (!blinkOnState and blink_on_current_count > 0) {
-      blink_on_current_count--;
-      if (blink_on_current_count == 0) {
-        blinkOnState = true;
+  } else if (blink_count == 0 and blink_sub_count == 0 and blinkOnState == blinkState::PreOnState) {
+     M5.dis.drawpix(0, CRGB(0, 0, 0));
+     blink_sub_count = blink_post_off_count;
+     blinkOnState == blinkState::PostOffState;
+     Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+  } else if (blinkOnState != blinkState::NonBlink) {
+    if (blinkOnState == blinkState::OnState) {
+      if (blink_sub_count == 0) {
+        blink_sub_count = blink_on_count;
+        M5.dis.drawpix(0, CRGB(led_r, led_g, led_b));
+        Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+      } else {
+        blink_sub_count--;
+        if (blink_sub_count == 0) {
+          blinkOnState = blinkState::OffState;
+          Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+        }
       }
-    } else if (blinkOnState and blink_off_current_count == 0) {
-      blink_off_current_count = blink_off_count;
-      M5.dis.drawpix(0, CRGB(0, 0, 0));
-    } else if (blinkOnState and blink_off_current_count > 0) {
-      blink_off_current_count--;
-      if (blink_off_current_count == 0) {
-        blinkOnState = false;
-        blink_count--;
+    } else {
+      if (blink_sub_count == 0) {
+        switch (blinkOnState) {
+          case blinkState::PreOnState:
+            blink_sub_count = blink_pre_on_count;
+            Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+            break;
+          case blinkState::OffState:
+            blink_sub_count = blink_off_count;
+            Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+            break;
+          case blinkState::PostOffState:
+            blink_sub_count = blink_post_off_count;
+            Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+            break;
+        }
+        M5.dis.drawpix(0, CRGB(0, 0, 0));
+      } else {
+        blink_sub_count--;
+        if (blink_sub_count == 0) {
+          switch (blinkOnState) {
+            case blinkState::PreOnState:
+              blinkOnState = blinkState::OnState;
+              Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+              break;
+            case blinkState::OffState:
+              if (blink_count > 0) {
+                blink_count--;
+                Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+              }
+              if (blink_count > 0) {
+                blinkOnState = blinkState::OnState;
+              } else {
+                blinkOnState = blinkState::PostOffState;
+                Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+              }
+              break;
+            case blinkState::PostOffState:
+              blinkOnState = blinkState::NonBlink;
+              Serial.printf("Blink Count: %d Blink State: %d Blink Sub Count: %d.\n", blink_count, blinkOnState, blink_sub_count);
+              break;
+          }
+        }
       }
     }
   }
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+}
+
+void setupLed() {
+  th2 = std::make_shared<std::thread>([&]() {
+    while (true) {
+      blinkLed();
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+  });
 }
 
 void ledChange() {
@@ -195,6 +247,7 @@ void ledChange() {
       led_g = 0;
       led_b = 0;
     }
+    M5.dis.drawpix(0, CRGB(led_r, led_g, led_b));
   }
 }
 
@@ -205,30 +258,35 @@ void changeConfigState() {
       led_r = 255;
       led_g = 255;
       led_b = 255;
+      Serial.printf("Change state from run to sound select.\n");
       break;
     case sound_select:
       config_state = device_no_10;
       led_r = 0;
       led_g = 255;
       led_b = 255;
+      Serial.printf("Change state from sound select to device no 10's order.\n");
       break;
     case device_no_10:
       config_state = device_no_1;
       led_r = 0;
       led_g = 0;
       led_b = 255;
+      Serial.printf("Change state from device no 10's order to device no 1's order.\n");
       break;
     case device_no_1:
       config_state = confirm;
       led_r = 255;
       led_g = 0;
       led_b = 0;
+      Serial.printf("Change state from device no 1's order to confirm save.\n");
       break;
     case confirm:
       config_state = run;
       led_r = 0;
       led_g = 0;
       led_b = 0;
+      Serial.printf("Change state from confirm save to run.");
       break;
   }
 }
@@ -238,6 +296,7 @@ void setup() {
   pinMode(PIR, INPUT); 
 
   setupBLE();
+  setupLed();
 
   M5.dis.clear();
 
@@ -254,7 +313,7 @@ void setup() {
 }
 
 void loop() {
-  blinkLed();
+  // blinkLed();
 
   M5.update();  // ボタン状態更新
 
@@ -274,6 +333,7 @@ void loop() {
         Serial.printf(" to %d.\n", selected_sound);
         ledChange();                  // 液晶画面表示変更
         blink_count = selected_sound + 1;
+        blinkOnState = blinkState::PreOnState;
         Serial.printf("Sound Select Blink countt: %d.\n", blink_count);
         break;
       case device_no_10:
@@ -281,6 +341,7 @@ void loop() {
         Serial.printf("Device NO: %d\n", deviceNo);
         ledChange();                  // 液晶画面表示変更
         blink_count = deviceNo / 10;
+        blinkOnState = blinkState::PreOnState;
         Serial.printf("Device No 10: %d.\n", blink_count);
         break;
       case device_no_1:
@@ -291,6 +352,7 @@ void loop() {
         Serial.printf("Device NO: %d\n", deviceNo);
         ledChange();                  // 液晶画面表示変更
         blink_count = deviceNo % 10;
+        blinkOnState = blinkState::PreOnState;
         Serial.printf("Device No 1: %d.\n", blink_count);
         break;
       case confirm:
