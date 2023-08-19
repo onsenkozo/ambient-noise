@@ -24,12 +24,11 @@ std::shared_ptr<std::thread> th2;
 
 uint8_t deviceNo = 1;
 uint8_t selected_sound = 0;
+uint8_t prev_selected_sound = 255;
 bool isActive = true;
 bool isDetected = false;
 bool night = false;
 bool continueDetected = false;
-bool pressBtn = false;
-bool continuePressBtn = false;
 bool longPress = false;
 bool confirm_flag = false;
 
@@ -382,8 +381,8 @@ void loop() {
   }
 
   if( mp3 != NULL ){
-    if (continuePressBtn) {
-      continuePressBtn = false;
+    if (prev_selected_sound != selected_sound) {
+      prev_selected_sound = selected_sound;
       if (mp3->isRunning()) {
         mp3->stop();
       }
