@@ -32,12 +32,14 @@ bool continueDetected = false;
 bool longPress = false;
 bool confirm_flag = false;
 
-const uint8_t run = 0;
-const uint8_t sound_select = 1;
-const uint8_t device_no_10 = 2;
-const uint8_t device_no_1 = 3;
-const uint8_t confirm = 4;
-uint8_t config_state = run;
+enum class configState : uint8_t {
+  run,
+  sound_select,
+  device_no_10,
+  device_no_1,
+  confirm,
+};
+configState config_state = configState::run;
 
 uint8_t led_r = 0;
 uint8_t led_g = 0;
@@ -236,7 +238,7 @@ void setupLed() {
 }
 
 void ledChange() {
-  if (config_state == confirm) {
+  if (config_state == configState::confirm) {
     if (confirm_flag) {
       led_r = 0;
       led_g = 255;
@@ -252,36 +254,36 @@ void ledChange() {
 
 void changeConfigState() {
   switch (config_state) {
-    case run:
-      config_state = sound_select;
+    case configState::run:
+      config_state = configState::sound_select;
       led_r = 255;
       led_g = 255;
       led_b = 255;
       Serial.printf("Change state from run to sound select.\n");
       break;
-    case sound_select:
-      config_state = device_no_10;
+    case configState::sound_select:
+      config_state = configState::device_no_10;
       led_r = 0;
       led_g = 255;
       led_b = 255;
       Serial.printf("Change state from sound select to device no 10's order.\n");
       break;
-    case device_no_10:
-      config_state = device_no_1;
+    case configState::device_no_10:
+      config_state = configState::device_no_1;
       led_r = 0;
       led_g = 0;
       led_b = 255;
       Serial.printf("Change state from device no 10's order to device no 1's order.\n");
       break;
-    case device_no_1:
-      config_state = confirm;
+    case configState::device_no_1:
+      config_state = configState::confirm;
       led_r = 255;
       led_g = 0;
       led_b = 0;
       Serial.printf("Change state from device no 1's order to confirm save.\n");
       break;
-    case confirm:
-      config_state = run;
+    case configState::confirm:
+      config_state = configState::run;
       led_r = 0;
       led_g = 0;
       led_b = 0;
@@ -325,7 +327,7 @@ void loop() {
     longPress = false;
   } else if (M5.Btn.wasReleased()) {
     switch (config_state) {
-      case sound_select:
+      case configState::sound_select:
         Serial.printf("change from %d", selected_sound);
         selected_sound++;
         selected_sound %= (sizeof(sounds)/sizeof(char*));
@@ -335,7 +337,7 @@ void loop() {
         blinkOnState = blinkState::PreOnState;
         Serial.printf("Sound Select Blink countt: %d.\n", blink_count);
         break;
-      case device_no_10:
+      case configState::device_no_10:
         deviceNo = (deviceNo + 10) % 100;
         Serial.printf("Device NO: %d\n", deviceNo);
         ledChange();                  // 液晶画面表示変更
@@ -343,7 +345,7 @@ void loop() {
         blinkOnState = blinkState::PreOnState;
         Serial.printf("Device No 10: %d.\n", blink_count);
         break;
-      case device_no_1:
+      case configState::device_no_1:
         deviceNo = (deviceNo / 10) * 10 + ((deviceNo % 10) + 1) % 10;
         if (deviceNo == 0) {
           deviceNo = 1;
@@ -354,7 +356,7 @@ void loop() {
         blinkOnState = blinkState::PreOnState;
         Serial.printf("Device No 1: %d.\n", blink_count);
         break;
-      case confirm:
+      case configState::confirm:
         Serial.printf("SAVE? %d", confirm_flag);
         confirm_flag = !confirm_flag; // flag状態反転
         Serial.printf(" to %d.\n", confirm_flag);
